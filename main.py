@@ -4,15 +4,18 @@ import random
 # Initialize pygame
 pygame.init()
 
+
 # Screen
 WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Alien Blaster - Coded by Amazing")
 
+background_img = pygame.image.load("background.png").convert()
+background_img = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
+
 # Colors
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
-PINK = (255, 105, 180)
 GREEN = (0, 255, 0)
 
 # Clock
@@ -27,88 +30,134 @@ explosion_sound = pygame.mixer.Sound("Sounds/explosion.wav")
 font = pygame.font.SysFont(None, 48)
 small_font = pygame.font.SysFont(None, 36)
 
+# Load images (make sure they are in the Images/ folder)
+player_img = pygame.image.load("shooting.png").convert_alpha()
+alien_img = pygame.image.load("alien.png").convert_alpha()
+bullet_img = pygame.Surface((10, 20))  # simple white bullet
+bullet_img.fill(WHITE)
+
+# --- SPRITE CLASSES ---
+class Player(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.transform.scale(player_img, (110, 110))
+        self.rect = self.image.get_rect(center=(WIDTH // 2, HEIGHT - 60))
+    
+    def update(self):
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT] and self.rect.left > 0:
+            self.rect.x -= 5
+        if keys[pygame.K_RIGHT] and self.rect.right < WIDTH:
+            self.rect.x += 5
+    
+    def shoot(self):
+        bullet = Bullet(self.rect.centerx, self.rect.top)
+        all_sprites.add(bullet)
+        bullets.add(bullet)
+        shoot_sound.play()
+
+class Alien(pygame.sprite.Sprite):
+    def __init__(self):
+        super().__init__()
+        self.image = pygame.transform.scale(alien_img, (40, 40))
+        self.rect = self.image.get_rect(center=(random.randint(20, WIDTH - 20), 0))
+    
+    def update(self):
+        self.rect.y += 1
+        if self.rect.top > HEIGHT:
+            self.kill()
+
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = bullet_img
+        self.rect = self.image.get_rect(center=(x, y))
+    
+    def update(self):
+        self.rect.y -= 10
+        if self.rect.bottom < 0:
+            self.kill()
+
+# Function to draw text
 def draw_text(text, font, color, surface, x, y):
     text_obj = font.render(text, True, color)
     surface.blit(text_obj, (x, y))
 
+# Function to draw restart button
 def draw_restart_button():
-    button_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2, 200, 50)
+    button_rect = pygame.Rect(WIDTH // 2 - 100, HEIGHT // 2, 200, 50)
     pygame.draw.rect(screen, GREEN, button_rect)
-    draw_text("RESTART", small_font, BLACK, screen, WIDTH//2 - 55, HEIGHT//2 + 10)
+    draw_text("RESTART", small_font, BLACK, screen, WIDTH // 2 - 55, HEIGHT // 2 + 10)
     return button_rect
 
+# Game reset function
 def reset_game():
-    global alien, bullets, score, game_over
-    alien = pygame.Rect(random.randint(0, WIDTH - 40), 0, 40, 40)
-    bullets = []
+    global score, game_over
     score = 0
     game_over = False
+    all_sprites.empty()
+    aliens.empty()
+    bullets.empty()
+    all_sprites.add(player)
 
-# Game variables
-player = pygame.Rect(WIDTH//2 - 25, HEIGHT - 60, 50, 50)
-alien = pygame.Rect(random.randint(0, WIDTH - 40), 0, 40, 40)
-bullets = []
+# Sprite groups
+all_sprites = pygame.sprite.Group()
+aliens = pygame.sprite.Group()
+bullets = pygame.sprite.Group()
+
+# Create player
+player = Player()
+all_sprites.add(player)
+
+# Variables
 score = 0
 game_over = False
+alien_spawn_timer = pygame.USEREVENT + 1
+pygame.time.set_timer(alien_spawn_timer, 2000)  # Spawn alien every second
 
 # Game loop
 running = True
 while running:
     clock.tick(FPS)
-    screen.fill(BLACK)
+    screen.blit(background_img, (0, 0))
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-
+        
         if not game_over:
             if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                bullet = pygame.Rect(player.centerx - 5, player.top, 10, 20)
-                bullets.append(bullet)
-                shoot_sound.play()
+                player.shoot()
+            if event.type == alien_spawn_timer:
+                alien = Alien()
+                all_sprites.add(alien)
+                aliens.add(alien)
         else:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if draw_restart_button().collidepoint(event.pos):
                     reset_game()
-
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_LEFT] and player.left > 0:
-        player.x -= 5
-    if keys[pygame.K_RIGHT] and player.right < WIDTH:
-        player.x += 5
-
+    
     if not game_over:
-        alien.y += 3
-
-        # Move bullets
-        for bullet in bullets[:]:
-            bullet.y -= 10
-            if bullet.colliderect(alien):
-                bullets.remove(bullet)
-                explosion_sound.play()
-                alien = pygame.Rect(random.randint(0, WIDTH - 40), 0, 40, 40)
-                score += 1
-            elif bullet.bottom < 0:
-                bullets.remove(bullet)
-
-        # Draw bullets
-        for bullet in bullets:
-            pygame.draw.rect(screen, WHITE, bullet)
-
-        # Draw player and alien
-        pygame.draw.rect(screen, WHITE, player)
-        pygame.draw.rect(screen, PINK, alien)
-
-        # Game over check
-        if alien.bottom >= HEIGHT:
-            game_over = True
-
-    # Draw score
+        # Update all sprites
+        all_sprites.update()
+        
+        # Collision: Bullet hits alien
+        hits = pygame.sprite.groupcollide(bullets, aliens, True, True)
+        for hit in hits:
+            explosion_sound.play()
+            score += 1
+        
+        # Collision: Alien reaches bottom
+        for alien in aliens:
+            if alien.rect.bottom >= HEIGHT:
+                game_over = True
+    
+    # Draw sprites
+    all_sprites.draw(screen)
     draw_text(f"Score: {score}", small_font, WHITE, screen, 10, 10)
-
-    # Show Game Over screen
+    
     if game_over:
-        draw_text("GAME OVER", font, WHITE, screen, WIDTH//2 - 120, HEIGHT//2 - 60)
+        draw_text("GAME OVER", font, WHITE, screen, WIDTH // 2 - 120, HEIGHT // 2 - 60)
         draw_restart_button()
 
     pygame.display.flip()
